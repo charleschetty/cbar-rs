@@ -2,8 +2,8 @@
 
 use std::fs;
 use std::io::{Read, Write};
-use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::sync::mpsc;
 
 use serde::Deserialize;
 
@@ -32,28 +32,33 @@ pub struct Workspace {
     pub urgent: bool,
 }
 
-// ── IPC init / event (called from workspace/mod.rs) ──
+// ── IPC init / thread ──
 
-pub fn init(state: &mut AppState) -> Option<super::Connection> {
+pub fn init(state: &mut AppState) -> Option<super::WsHandle> {
     let sp = find_socket()?;
     let mut stream = UnixStream::connect(sp).ok()?;
+
     send(&mut stream, MsgType::Subscribe, Some(r#"["workspace"]"#)).ok()?;
     send(&mut stream, MsgType::GetWorkspaces, None).ok()?;
     if let Ok((_, reply)) = recv(&mut stream) {
         state.i3workspace = Some(serde_json::from_str(&reply).unwrap_or_default());
     }
-    let fd = stream.as_raw_fd();
-    Some((fd, stream))
-}
 
-pub fn handle_event(conn: &mut super::Connection, state: &mut AppState) {
-    let (_fd, stream) = conn;
-    if let Ok((_, _body)) = recv(stream) {
-        let _ = send(stream, MsgType::GetWorkspaces, None);
-        if let Ok((_, reply)) = recv(stream) {
-            state.i3workspace = Some(serde_json::from_str(&reply).unwrap_or_default());
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        while let Ok((_, _body)) = recv(&mut stream) {
+            let _ = send(&mut stream, MsgType::GetWorkspaces, None);
+            if let Ok((_, reply)) = recv(&mut stream) {
+                let ws: Vec<Workspace> = serde_json::from_str(&reply).unwrap_or_default();
+                if tx.send(ws).is_err() {
+                    break;
+                }
+            }
         }
-    }
+    });
+
+    Some(super::WsHandle { rx })
 }
 
 fn find_socket() -> Option<String> {

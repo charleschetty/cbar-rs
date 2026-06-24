@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut state = modules::AppState::new();
 
-    let mut ws_conn = if config::WORKSPACE { modules::workspace::init(&mut state) } else { None };
+    let ws = if config::WORKSPACE { modules::workspace::init(&mut state) } else { None };
 
     let mut visual_raw = get_root_visual(screen).unwrap();
     let sfc = unsafe {
@@ -169,67 +169,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut readfds = FdSet::new();
         let xfd = conn.as_raw_fd();
         readfds.insert(borrow_fd(xfd));
-        let mut mfd = xfd;
-
-        if let Some((ws_fd, _)) = &ws_conn {
-            readfds.insert(borrow_fd(*ws_fd));
-            mfd = std::cmp::max(mfd, *ws_fd);
-        }
 
         let tv = TimeVal::new(0, 100_000);
         let mut timeout = Some(tv);
 
-        if select(Some(mfd + 1), &mut readfds, None, None, &mut timeout).is_ok_and(|n| n > 0) {
-            if readfds.contains(borrow_fd(xfd)) {
-                loop {
-                    match conn.poll_for_event()? {
-                        Some(Event::Expose(ev)) => {
-                            if ev.count == 0 && ev.window != 0 {
-                                let ok = if config::TRAY { tray.find(ev.window).is_none() } else { true };
-                                if ok {
-                                    draw::draw_all(
-                                        &conn,
-                                        &cr,
-                                        sw,
-                                        bh,
-                                        &state,
-                                        config::LEFT,
-                                        config::CENTER,
-                                        config::RIGHT,
-                                        right_margin,
-                                    );
-                                }
+        if select(Some(xfd + 1), &mut readfds, None, None, &mut timeout).is_ok_and(|n| n > 0) {
+            loop {
+                match conn.poll_for_event()? {
+                    Some(Event::Expose(ev)) => {
+                        if ev.count == 0 && ev.window != 0 {
+                            let ok = if config::TRAY { tray.find(ev.window).is_none() } else { true };
+                            if ok {
+                                draw::draw_all(
+                                    &conn,
+                                    &cr,
+                                    sw,
+                                    bh,
+                                    &state,
+                                    config::LEFT,
+                                    config::CENTER,
+                                    config::RIGHT,
+                                    right_margin,
+                                );
                             }
                         }
-                        Some(Event::ClientMessage(ev)) => {
-                            let is_wm_delete = if ev.format == 32 {
-                                let data = ev.data.as_data32();
-                                data[0] == atoms.WM_DELETE_WINDOW
-                            } else {
-                                false
-                            };
-                            if config::TRAY {
-                                tray.handle_event(&conn, &Event::ClientMessage(ev))?;
-                            }
-                            if is_wm_delete {
-                                running = false;
-                            }
-                        }
-                        Some(Event::KeyPress(_)) => running = false,
-                        Some(ev) => {
-                            if config::TRAY {
-                                tray.handle_event(&conn, &ev)?;
-                            }
-                        }
-                        None => break,
                     }
+                    Some(Event::ClientMessage(ev)) => {
+                        let is_wm_delete = if ev.format == 32 {
+                            let data = ev.data.as_data32();
+                            data[0] == atoms.WM_DELETE_WINDOW
+                        } else {
+                            false
+                        };
+                        if config::TRAY {
+                            tray.handle_event(&conn, &Event::ClientMessage(ev))?;
+                        }
+                        if is_wm_delete {
+                            running = false;
+                        }
+                    }
+                    Some(Event::KeyPress(_)) => running = false,
+                    Some(ev) => {
+                        if config::TRAY {
+                            tray.handle_event(&conn, &ev)?;
+                        }
+                    }
+                    None => break,
                 }
             }
-            if let Some(ref mut ws) = ws_conn
-                && readfds.contains(borrow_fd(ws.0))
-            {
-                modules::workspace::handle_event(ws, &mut state);
-            }
+        }
+
+        if let Some(ref h) = ws {
+            modules::workspace::poll(h, &mut state);
         }
 
         if config::TRAY && tray.dirty {
