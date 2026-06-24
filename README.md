@@ -16,6 +16,7 @@ A dwm-style status bar for X11.  Configuration is done by editing Rust source fi
 > Under certain timing conditions, a tray client's icon may leave a blank
 > space after it exits.  Starting any additional tray application (e.g.
 > `flameshot`, `steam`) forces a re-layout and clears it.
+> **Workaround:** Clicking anywhere on the bar also triggers a full refresh.
 
 ## limitations
 

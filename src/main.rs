@@ -89,13 +89,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let win_id = conn.generate_id()?;
 
-    let win_aux = CreateWindowAux::new().background_pixel(0x2e3440).event_mask(
-        EventMask::EXPOSURE
-            | EventMask::KEY_PRESS
-            | EventMask::BUTTON_PRESS
-            | EventMask::STRUCTURE_NOTIFY
-            | EventMask::SUBSTRUCTURE_NOTIFY,
-    );
+    let win_aux = CreateWindowAux::new()
+        .background_pixel(0x2e3440)
+        .event_mask(
+            EventMask::EXPOSURE
+                | EventMask::KEY_PRESS
+                | EventMask::BUTTON_PRESS
+                | EventMask::STRUCTURE_NOTIFY
+                | EventMask::SUBSTRUCTURE_NOTIFY,
+        )
+        .backing_store(BackingStore::WHEN_MAPPED)
+        .save_under(1u32);
 
     #[rustfmt::skip]
     conn.create_window(COPY_DEPTH_FROM_PARENT, win_id, screen.root, 0, 0,
@@ -148,6 +152,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cr = cairo::Context::new(&sfc)?;
 
     let mut right_margin: i32 = 6;
+
+    if config::TRAY && tray.dirty {
+        tray.dirty = false;
+        tray.layout(&conn, sw, bh, &mut right_margin)?;
+    }
+
+    // Process any dock requests that arrived during init
+    while let Ok(Some(ev)) = conn.poll_for_event() {
+        if config::TRAY {
+            tray.handle_event(&conn, &ev)?;
+        }
+    }
+    if config::TRAY && tray.dirty {
+        tray.dirty = false;
+        tray.layout(&conn, sw, bh, &mut right_margin)?;
+    }
 
     let mut updaters: Vec<UpdateFn> = Vec::new();
     for m in config::LEFT.iter().chain(config::CENTER).chain(config::RIGHT) {

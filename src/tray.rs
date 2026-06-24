@@ -1,10 +1,10 @@
 use crate::config;
 use std::error::Error;
-use x11rb::CURRENT_TIME;
 use x11rb::connection::Connection;
-use x11rb::protocol::Event;
 use x11rb::protocol::xproto::*;
+use x11rb::protocol::Event;
 use x11rb::wrapper::ConnectionExt as _;
+use x11rb::{COPY_DEPTH_FROM_PARENT, COPY_FROM_PARENT, CURRENT_TIME};
 
 const MAX_CLIENTS: usize = 32;
 const TRAY_SIZE: u16 = 20;
@@ -24,9 +24,7 @@ struct TrayClient {
     wrapper: u32,
     window: u32,
     mapped: bool,
-    hidden: bool,
     xembed: bool,
-    xembed_version: u32,
     xembed_flags: u32,
 }
 
@@ -34,7 +32,7 @@ pub struct TrayState {
     pub active: bool,
     pub dirty: bool,
     pub tray_width: i32,
-    bar: u32,
+    tw: u32,
     tray_atom: u32,
     atoms: Option<TrayAtoms>,
     clients: Vec<TrayClient>,
@@ -62,8 +60,8 @@ fn query_xembed<C: Connection>(conn: &C, win: u32, xembed_info_atom: u32) -> (bo
 
 fn send_visibility<C: Connection>(conn: &C, window: u32, state: u8) -> Result<(), Box<dyn Error>> {
     let mut ev = [0u8; 32];
-    ev[0] = 15; // VisibilityNotify
-    ev[1] = 0; // unused
+    ev[0] = 15;
+    ev[1] = 0;
     ev[4..8].copy_from_slice(&window.to_ne_bytes());
     ev[8] = state;
     conn.send_event(false, window, EventMask::NO_EVENT, ev)?;
@@ -72,7 +70,7 @@ fn send_visibility<C: Connection>(conn: &C, window: u32, state: u8) -> Result<()
 
 impl TrayState {
     pub fn new() -> Self {
-        TrayState { active: false, dirty: false, tray_width: 0, bar: 0, tray_atom: 0, atoms: None, clients: Vec::new() }
+        TrayState { active: false, dirty: false, tray_width: 0, tw: 0, tray_atom: 0, atoms: None, clients: Vec::new() }
     }
 
     pub fn find(&self, w: u32) -> Option<usize> {
@@ -86,7 +84,6 @@ impl TrayState {
     fn remove_client<C: Connection>(&mut self, conn: &C, idx: usize) -> Result<(), Box<dyn Error>> {
         let wrapper = self.clients[idx].wrapper;
         let client = self.clients[idx].window;
-
         let _ = conn.unmap_window(client);
         let _ = conn.reparent_window(client, conn.setup().roots[0].root, 0, 0);
         let _ = conn.destroy_window(wrapper);
@@ -103,6 +100,20 @@ impl TrayState {
         self.clients.iter().position(|c| c.wrapper == w)
     }
 
+    fn redraw_clients<C: Connection>(&self, conn: &C) -> Result<(), Box<dyn Error>> {
+        for c in &self.clients {
+            if !c.mapped {
+                continue;
+            }
+            let _ = conn.clear_area(false, c.wrapper, 0, 0, 0, 0);
+            let _ = send_visibility(conn, c.window, 2);
+            let _ = send_visibility(conn, c.window, 0);
+            let _ = conn.clear_area(true, c.window, 0, 0, 0, 0);
+        }
+        conn.flush()?;
+        Ok(())
+    }
+
     pub fn layout<C: Connection>(
         &mut self,
         conn: &C,
@@ -110,15 +121,14 @@ impl TrayState {
         bh: i32,
         right_margin: &mut i32,
     ) -> Result<(), Box<dyn Error>> {
-        if self.atoms.is_none() || self.bar == 0 {
+        if self.atoms.is_none() || self.tw == 0 {
             return Ok(());
         }
         let icon_sz = config::FONT_SIZE_ICON as i32 + 6;
         let pad = 6;
-
         let xembed_info_atom = self.atoms()._XEMBED_INFO;
 
-        // Pass 1: refresh XEMBED state and count mapped clients
+        // Pass 1: count mapped icons
         let mut total_w = 0i32;
         for i in 0..self.clients.len() {
             let (is_xembed, _version, flags) = query_xembed(conn, self.clients[i].window, xembed_info_atom);
@@ -126,16 +136,8 @@ impl TrayState {
             if is_xembed {
                 self.clients[i].xembed_flags = flags;
             }
-
-            let should_map = if self.clients[i].hidden {
-                false
-            } else if is_xembed {
-                is_xembed_mapped(flags)
-            } else {
-                true
-            };
+            let should_map = if is_xembed { is_xembed_mapped(flags) } else { true };
             self.clients[i].mapped = should_map;
-
             if should_map {
                 if total_w > 0 {
                     total_w += pad;
@@ -147,45 +149,48 @@ impl TrayState {
         self.tray_width = total_w;
         *right_margin = if total_w > 0 { total_w + 18 } else { 12 };
 
-        // Pass 2: position wrappers starting from right edge of bar
-        let mut x = sw - total_w - 6;
+        if total_w == 0 {
+            // Collapse tray off-screen, don't unmap
+            conn.configure_window(self.tw, &ConfigureWindowAux::new().x(sw).y(0).width(1).height(bh as u32))?;
+            conn.flush()?;
+            return Ok(());
+        }
+
+        // Pass 2: position icons inside tray window (relative to tray, x starts at 0)
+        let mut x = 0i32;
         for i in 0..self.clients.len() {
             if !self.clients[i].mapped {
                 let _ = conn.unmap_window(self.clients[i].window);
                 let _ = conn.unmap_window(self.clients[i].wrapper);
                 continue;
             }
-
             let wrapper = self.clients[i].wrapper;
             let client = self.clients[i].window;
             let y = (bh - icon_sz) / 2;
 
-            let _ = conn.configure_window(
-                wrapper,
-                &ConfigureWindowAux::new().x(x).y(y).width(icon_sz as u32).height(icon_sz as u32),
-            );
-            let _ =
-                conn.configure_window(client, &ConfigureWindowAux::new().width(icon_sz as u32).height(icon_sz as u32));
-
+            let _ = conn.configure_window(wrapper, &ConfigureWindowAux::new().x(x).y(y).width(icon_sz as u32).height(icon_sz as u32));
+            let _ = conn.configure_window(client, &ConfigureWindowAux::new().width(icon_sz as u32).height(icon_sz as u32));
             let _ = conn.map_window(wrapper);
             let _ = conn.map_window(client);
-
-            let _ = conn.clear_area(false, wrapper, 0, 0, 0, 0);
-            let _ = send_visibility(conn, client, 2); // FullyObscured
-            let _ = send_visibility(conn, client, 0); // Unobscured
-            let _ = conn.clear_area(true, client, 0, 0, 0, 0);
 
             x += icon_sz + pad;
         }
 
-        conn.configure_window(self.bar, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE))?;
+        let _ = self.redraw_clients(conn);
+        // Position and map the tray window at the right of the bar
+        let tw_w = total_w;
+        let tx = sw - total_w - 6;
+        conn.configure_window(self.tw, &ConfigureWindowAux::new().x(tx).y(0).width(tw_w as u32).height(bh as u32))?;
+        conn.map_window(self.tw)?;
+        conn.map_subwindows(self.tw)?;
+        conn.configure_window(self.tw, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE))?;
         conn.flush()?;
         Ok(())
     }
 
     pub fn init<C: Connection>(&mut self, conn: &C, bar: u32, screen_num: usize) -> Result<(), Box<dyn Error>> {
-        self.bar = bar;
         let screen = &conn.setup().roots[screen_num];
+        let bh = config::BAR_HEIGHT;
 
         let suffix = format!("_NET_SYSTEM_TRAY_S{screen_num}");
         let cookie = conn.intern_atom(false, suffix.as_bytes())?;
@@ -197,35 +202,41 @@ impl TrayState {
 
         self.atoms = Some(TrayAtoms::new(conn)?.reply()?);
 
-        conn.set_selection_owner(bar, self.tray_atom, CURRENT_TIME)?;
+        let tw = conn.generate_id()?;
+        #[rustfmt::skip]
+        conn.create_window(COPY_DEPTH_FROM_PARENT, tw, bar, 0, 0, 1, bh as u16, 0,
+            WindowClass::INPUT_OUTPUT, COPY_FROM_PARENT,
+            &CreateWindowAux::new()
+                .background_pixel(0x2e3440)
+                .override_redirect(1u32)
+                .event_mask(EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY | EventMask::EXPOSURE),
+        )?;
+        conn.map_window(tw)?;
+        conn.configure_window(tw, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE))?;
+        conn.set_selection_owner(tw, self.tray_atom, CURRENT_TIME)?;
         conn.flush()?;
 
         let sel_reply = conn.get_selection_owner(self.tray_atom)?.reply()?;
-        if sel_reply.owner != bar {
+        if sel_reply.owner != tw {
             eprintln!("tray: cannot acquire selection");
+            conn.destroy_window(tw)?;
+            conn.flush()?;
             return Ok(());
         }
 
-        conn.change_property32(PropMode::REPLACE, screen.root, self.tray_atom, AtomEnum::WINDOW, &[bar])?;
-
+        conn.change_property32(PropMode::REPLACE, screen.root, self.tray_atom, AtomEnum::WINDOW, &[tw])?;
         conn.change_property32(
-            PropMode::REPLACE,
-            bar,
-            self.atoms()._NET_SYSTEM_TRAY_ORIENTATION,
-            AtomEnum::CARDINAL,
-            &[0],
+            PropMode::REPLACE, tw, self.atoms()._NET_SYSTEM_TRAY_ORIENTATION, AtomEnum::CARDINAL, &[0],
         )?;
         conn.flush()?;
 
         let mev = ClientMessageEvent::new(
-            32,
-            screen.root,
-            self.atoms().MANAGER,
-            [CURRENT_TIME, self.tray_atom, bar, 0u32, 0u32],
+            32, screen.root, self.atoms().MANAGER, [CURRENT_TIME, self.tray_atom, tw, 0u32, 0u32],
         );
         conn.send_event(false, screen.root, EventMask::STRUCTURE_NOTIFY, mev)?;
         conn.flush()?;
 
+        self.tw = tw;
         self.active = true;
         self.dirty = true;
         Ok(())
@@ -247,26 +258,18 @@ impl TrayState {
             Ok(g) => g,
             Err(_) => return Ok(()),
         };
-        let client_depth = geom.depth;
-        let client_visual = attrs.visual;
-        let client_colormap = attrs.colormap;
 
         let wrapper = conn.generate_id()?;
         let screen = &conn.setup().roots[0];
 
         #[rustfmt::skip]
-        conn.create_window(client_depth, wrapper, self.bar, 0, 0, TRAY_SIZE, TRAY_SIZE, 0,
-            WindowClass::INPUT_OUTPUT, client_visual,
+        conn.create_window(geom.depth, wrapper, self.tw, 0, 0, TRAY_SIZE, TRAY_SIZE, 0,
+            WindowClass::INPUT_OUTPUT, attrs.visual,
             &CreateWindowAux::new()
                 .background_pixel(0x2e3440)
                 .border_pixel(screen.black_pixel)
-                .colormap(client_colormap)
-                .event_mask(
-                    EventMask::SUBSTRUCTURE_REDIRECT
-                        | EventMask::SUBSTRUCTURE_NOTIFY
-                        | EventMask::EXPOSURE
-                        | EventMask::PROPERTY_CHANGE,
-                )
+                .colormap(attrs.colormap)
+                .event_mask(EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY | EventMask::EXPOSURE | EventMask::PROPERTY_CHANGE)
                 .backing_store(BackingStore::WHEN_MAPPED)
                 .save_under(1u32),
         )?;
@@ -280,44 +283,13 @@ impl TrayState {
         conn.reparent_window(client, wrapper, 0, 0)?;
 
         let size_hints: [u32; 18] = [
-            3,
-            0,
-            0,
-            0,
-            0,
-            TRAY_SIZE as u32,
-            TRAY_SIZE as u32,
-            TRAY_SIZE as u32,
-            TRAY_SIZE as u32,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
+            3, 0, 0, 0, 0, TRAY_SIZE as u32, TRAY_SIZE as u32, TRAY_SIZE as u32, TRAY_SIZE as u32, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
         ];
-        conn.change_property32(
-            PropMode::REPLACE,
-            client,
-            self.atoms().WM_NORMAL_HINTS,
-            AtomEnum::WM_SIZE_HINTS,
-            &size_hints,
-        )?;
+        conn.change_property32(PropMode::REPLACE, client, self.atoms().WM_NORMAL_HINTS, AtomEnum::WM_SIZE_HINTS, &size_hints)?;
 
-        let (is_xembed, version, flags) = query_xembed(conn, client, self.atoms()._XEMBED_INFO);
-
-        self.clients.push(TrayClient {
-            wrapper,
-            window: client,
-            mapped: false,
-            hidden: false,
-            xembed: is_xembed,
-            xembed_version: version,
-            xembed_flags: flags,
-        });
+        let (is_xembed, _version, flags) = query_xembed(conn, client, self.atoms()._XEMBED_INFO);
+        self.clients.push(TrayClient { wrapper, window: client, mapped: false, xembed: is_xembed, xembed_flags: flags });
 
         if is_xembed {
             let xe = ClientMessageEvent::new(32, client, self.atoms()._XEMBED, [0u32, 0u32, wrapper, 0u32, 0u32]);
@@ -331,9 +303,8 @@ impl TrayState {
 
     fn update_xembed<C: Connection>(&mut self, conn: &C, idx: usize) {
         let client = self.clients[idx].window;
-        let (is_xembed, version, flags) = query_xembed(conn, client, self.atoms()._XEMBED_INFO);
+        let (is_xembed, _version, flags) = query_xembed(conn, client, self.atoms()._XEMBED_INFO);
         self.clients[idx].xembed = is_xembed;
-        self.clients[idx].xembed_version = version;
         self.clients[idx].xembed_flags = flags;
     }
 
@@ -347,6 +318,8 @@ impl TrayState {
             let _ = conn.reparent_window(c.window, conn.setup().roots[0].root, 0, 0);
             let _ = conn.destroy_window(c.wrapper);
         }
+        conn.destroy_window(self.tw)?;
+        self.tw = 0;
         conn.flush()?;
         Ok(())
     }
@@ -363,10 +336,16 @@ impl TrayState {
                 }
             }
             Event::DestroyNotify(ev) => {
+                let mut removed = false;
                 if let Some(i) = self.client_by_window(ev.window) {
                     self.remove_client(conn, i)?;
+                    removed = true;
                 } else if let Some(i) = self.client_by_wrapper(ev.window) {
                     self.remove_client(conn, i)?;
+                    removed = true;
+                }
+                if removed {
+                    let _ = self.redraw_clients(conn);
                 }
             }
             Event::PropertyNotify(ev) if ev.atom == self.atoms()._XEMBED_INFO => {
@@ -377,10 +356,7 @@ impl TrayState {
             }
             Event::ConfigureRequest(ev) => {
                 if self.client_by_window(ev.window).is_some() {
-                    conn.configure_window(
-                        ev.window,
-                        &ConfigureWindowAux::new().width(TRAY_SIZE as u32).height(TRAY_SIZE as u32),
-                    )?;
+                    conn.configure_window(ev.window, &ConfigureWindowAux::new().width(TRAY_SIZE as u32).height(TRAY_SIZE as u32))?;
                     conn.flush()?;
                 }
             }
@@ -393,6 +369,12 @@ impl TrayState {
             }
             Event::SelectionClear(ev) if ev.selection == self.tray_atom => {
                 self.deactivate(conn)?;
+            }
+            Event::Expose(ev) if ev.window == self.tw && ev.count == 0 && !self.clients.is_empty() => {
+                let _ = self.redraw_clients(conn);
+            }
+            Event::MapNotify(ev) if ev.window == self.tw => {
+                let _ = self.redraw_clients(conn);
             }
             _ => {}
         }
