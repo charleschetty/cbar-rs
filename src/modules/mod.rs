@@ -42,25 +42,13 @@ impl AppState {
     pub fn new() -> Self {
         AppState {
             i3workspace: None,
-            gpu: nvidia::GpuStats {
-                gpu: 0,
-                mem: 0,
-                vram: 0,
-                temp: 0,
-                valid: false,
-            },
+            gpu: nvidia::GpuStats { gpu: 0, mem: 0, vram: 0, temp: 0, valid: false },
             cpu: cpu::CpuState::new(),
             mem: memory::MemState { pct: None },
             temp: cpu_temp::TempState { value: None },
             bright: brightness::BrightState { pct: None },
-            bat: battery::BatteryState {
-                pct: None,
-                status: String::new(),
-            },
-            vol: volume::VolumeState {
-                pct: None,
-                muted: false,
-            },
+            bat: battery::BatteryState { pct: None, status: String::new() },
+            vol: volume::VolumeState { pct: None, muted: false },
             net: network::NetState::new(),
         }
     }

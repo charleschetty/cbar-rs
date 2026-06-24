@@ -19,11 +19,7 @@ fn read_pct() -> Option<i32> {
             avail = line.split_whitespace().nth(1)?.parse().ok()?;
         }
     }
-    if total == 0 {
-        None
-    } else {
-        Some(((total - avail) * 100 / total) as i32)
-    }
+    if total == 0 { None } else { Some(((total - avail) * 100 / total) as i32) }
 }
 
 pub fn update(state: &mut AppState) {
@@ -31,15 +27,8 @@ pub fn update(state: &mut AppState) {
 }
 
 pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: bool) -> f64 {
-    let text = state
-        .mem
-        .pct
-        .map(|mp| format!("{} {}%", ICON_MEM.to_str().unwrap(), mp))
-        .unwrap_or_default();
+    let text = state.mem.pct.map(|mp| format!("{} {}%", ICON_MEM.to_str().unwrap(), mp)).unwrap_or_default();
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 
-pub const MODULE: Module = Module {
-    draw,
-    update: Some(update),
-};
+pub const MODULE: Module = Module { draw, update: Some(update) };

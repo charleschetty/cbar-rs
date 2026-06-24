@@ -17,6 +17,7 @@ use x11rb::protocol::Event;
 use x11rb::protocol::xproto::*;
 use x11rb::wrapper::ConnectionExt as _;
 use x11rb::xcb_ffi::XCBConnection;
+use x11rb::{COPY_DEPTH_FROM_PARENT, COPY_FROM_PARENT};
 
 use crate::modules::UpdateFn;
 
@@ -88,29 +89,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let win_id = conn.generate_id()?;
 
-    let win_aux = CreateWindowAux::new()
-        .background_pixel(0x2e3440)
-        .event_mask(
-            EventMask::EXPOSURE
-                | EventMask::KEY_PRESS
-                | EventMask::BUTTON_PRESS
-                | EventMask::STRUCTURE_NOTIFY
-                | EventMask::SUBSTRUCTURE_NOTIFY,
-        );
+    let win_aux = CreateWindowAux::new().background_pixel(0x2e3440).event_mask(
+        EventMask::EXPOSURE
+            | EventMask::KEY_PRESS
+            | EventMask::BUTTON_PRESS
+            | EventMask::STRUCTURE_NOTIFY
+            | EventMask::SUBSTRUCTURE_NOTIFY,
+    );
 
-    conn.create_window(
-        x11rb::COPY_DEPTH_FROM_PARENT,
-        win_id,
-        screen.root,
-        0,
-        0,
-        sw as u16,
-        bh as u16,
-        0,
-        WindowClass::INPUT_OUTPUT,
-        x11rb::COPY_FROM_PARENT,
-        &win_aux,
-    )?;
+    #[rustfmt::skip]
+    conn.create_window(COPY_DEPTH_FROM_PARENT, win_id, screen.root, 0, 0,
+        sw as u16, bh as u16, 0,
+        WindowClass::INPUT_OUTPUT, COPY_FROM_PARENT, &win_aux)?;
 
     conn.change_property32(
         PropMode::REPLACE,
@@ -122,20 +112,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut str_val: [u32; 12] = [0; 12];
     str_val[2] = bh as u32;
     str_val[9] = sw as u32;
-    conn.change_property32(
-        PropMode::REPLACE,
-        win_id,
-        atoms._NET_WM_STRUT_PARTIAL,
-        AtomEnum::CARDINAL,
-        &str_val,
-    )?;
-    conn.change_property32(
-        PropMode::REPLACE,
-        win_id,
-        atoms._NET_WM_DESKTOP,
-        AtomEnum::CARDINAL,
-        &[0xFFFFFFFF],
-    )?;
+    conn.change_property32(PropMode::REPLACE, win_id, atoms._NET_WM_STRUT_PARTIAL, AtomEnum::CARDINAL, &str_val)?;
+    conn.change_property32(PropMode::REPLACE, win_id, atoms._NET_WM_DESKTOP, AtomEnum::CARDINAL, &[0xFFFFFFFF])?;
     conn.change_property32(
         PropMode::REPLACE,
         win_id,
@@ -143,13 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AtomEnum::ATOM,
         &[atoms._NET_WM_STATE_STICKY],
     )?;
-    conn.change_property32(
-        PropMode::REPLACE,
-        win_id,
-        atoms.WM_PROTOCOLS,
-        AtomEnum::ATOM,
-        &[atoms.WM_DELETE_WINDOW],
-    )?;
+    conn.change_property32(PropMode::REPLACE, win_id, atoms.WM_PROTOCOLS, AtomEnum::ATOM, &[atoms.WM_DELETE_WINDOW])?;
 
     conn.map_window(win_id)?;
     conn.flush()?;
@@ -161,11 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut state = modules::AppState::new();
 
-    let mut ws_conn = if config::WORKSPACE {
-        modules::workspace::init(&mut state)
-    } else {
-        None
-    };
+    let mut ws_conn = if config::WORKSPACE { modules::workspace::init(&mut state) } else { None };
 
     let mut visual_raw = get_root_visual(screen).unwrap();
     let sfc = unsafe {
@@ -182,11 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut right_margin: i32 = 6;
 
     let mut updaters: Vec<UpdateFn> = Vec::new();
-    for m in config::LEFT
-        .iter()
-        .chain(config::CENTER)
-        .chain(config::RIGHT)
-    {
+    for m in config::LEFT.iter().chain(config::CENTER).chain(config::RIGHT) {
         if let Some(u) = m.update {
             updaters.push(u);
         }
@@ -196,17 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         u(&mut state);
     }
 
-    draw::draw_all(
-        &conn,
-        &cr,
-        sw,
-        bh,
-        &state,
-        config::LEFT,
-        config::CENTER,
-        config::RIGHT,
-        right_margin,
-    );
+    draw::draw_all(&conn, &cr, sw, bh, &state, config::LEFT, config::CENTER, config::RIGHT, right_margin);
 
     let mut tick = 0i32;
     let mut running = true;
@@ -231,11 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match conn.poll_for_event()? {
                         Some(Event::Expose(ev)) => {
                             if ev.count == 0 && ev.window != 0 {
-                                let ok = if config::TRAY {
-                                    tray.find(ev.window).is_none()
-                                } else {
-                                    true
-                                };
+                                let ok = if config::TRAY { tray.find(ev.window).is_none() } else { true };
                                 if ok {
                                     draw::draw_all(
                                         &conn,
@@ -295,17 +245,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        draw::draw_all(
-            &conn,
-            &cr,
-            sw,
-            bh,
-            &state,
-            config::LEFT,
-            config::CENTER,
-            config::RIGHT,
-            right_margin,
-        );
+        draw::draw_all(&conn, &cr, sw, bh, &state, config::LEFT, config::CENTER, config::RIGHT, right_margin);
     }
 
     conn.destroy_window(win_id)?;

@@ -17,15 +17,8 @@ pub fn update(state: &mut AppState) {
 }
 
 pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: bool) -> f64 {
-    let text = state
-        .temp
-        .value
-        .map(|t| format!("{} {}\u{00B0}C", ICON_TEMP.to_str().unwrap(), t))
-        .unwrap_or_default();
+    let text = state.temp.value.map(|t| format!("{} {}\u{00B0}C", ICON_TEMP.to_str().unwrap(), t)).unwrap_or_default();
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 
-pub const MODULE: Module = Module {
-    draw,
-    update: Some(update),
-};
+pub const MODULE: Module = Module { draw, update: Some(update) };

@@ -17,13 +17,7 @@ pub struct GpuStats {
 }
 
 fn query_gpu(nvml: &nvml_wrapper::Nvml) -> GpuStats {
-    let mut s = GpuStats {
-        gpu: 0,
-        mem: 0,
-        vram: 0,
-        temp: 0,
-        valid: false,
-    };
+    let mut s = GpuStats { gpu: 0, mem: 0, vram: 0, temp: 0, valid: false };
     if let Ok(device) = nvml.device_by_index(0) {
         if let Ok(util) = device.utilization_rates() {
             s.gpu = util.gpu as i32;
@@ -34,9 +28,7 @@ fn query_gpu(nvml: &nvml_wrapper::Nvml) -> GpuStats {
         {
             s.vram = (mem.used * 100 / mem.total) as i32;
         }
-        if let Ok(temp) =
-            device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
-        {
+        if let Ok(temp) = device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu) {
             s.temp = temp as i32;
         }
         s.valid = true;
@@ -73,7 +65,4 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 
-pub const MODULE: Module = Module {
-    draw,
-    update: Some(update),
-};
+pub const MODULE: Module = Module { draw, update: Some(update) };

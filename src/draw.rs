@@ -5,14 +5,7 @@ use crate::modules::{AppState, Module};
 use cairo::Context;
 use x11rb::connection::Connection;
 
-pub fn simple_draw(
-    cr: &Context,
-    x: f64,
-    bh: i32,
-    font_size: f64,
-    text: &str,
-    dry_run: bool,
-) -> f64 {
+pub fn simple_draw(cr: &Context, x: f64, bh: i32, font_size: f64, text: &str, dry_run: bool) -> f64 {
     cr.set_font_size(font_size);
     let fe = cr.font_extents().unwrap();
     let baseline = (bh as f64 + fe.ascent() - fe.descent()) / 2.0;
@@ -58,11 +51,7 @@ pub fn draw_all(
     cr.set_source_rgb(config::BG_R, config::BG_G, config::BG_B);
     let _ = cr.paint();
     let _ = cr.paint();
-    cr.select_font_face(
-        config::FONT.to_str().unwrap(),
-        cairo::FontSlant::Normal,
-        cairo::FontWeight::Normal,
-    );
+    cr.select_font_face(config::FONT.to_str().unwrap(), cairo::FontSlant::Normal, cairo::FontWeight::Normal);
 
     let mut lx = 6.0;
     for m in left {
@@ -73,17 +62,9 @@ pub fn draw_all(
     }
 
     if !center.is_empty() {
-        let widths: Vec<f64> = center
-            .iter()
-            .map(|m| (m.draw)(cr, 0.0, bh, state, true))
-            .collect();
+        let widths: Vec<f64> = center.iter().map(|m| (m.draw)(cr, 0.0, bh, state, true)).collect();
         let total: f64 = widths.iter().sum::<f64>()
-            + widths
-                .iter()
-                .filter(|&&w| w > 0.0)
-                .count()
-                .saturating_sub(1) as f64
-                * config::GAP;
+            + widths.iter().filter(|&&w| w > 0.0).count().saturating_sub(1) as f64 * config::GAP;
         let mut cx = (sw as f64 - total) / 2.0;
         for (i, m) in center.iter().enumerate() {
             let w = widths[i];
@@ -95,10 +76,7 @@ pub fn draw_all(
     }
 
     if !right.is_empty() {
-        let widths: Vec<f64> = right
-            .iter()
-            .map(|m| (m.draw)(cr, 0.0, bh, state, true))
-            .collect();
+        let widths: Vec<f64> = right.iter().map(|m| (m.draw)(cr, 0.0, bh, state, true)).collect();
         let mut rx = sw as f64 - right_margin as f64;
         for (i, m) in right.iter().enumerate().rev() {
             let w = widths[i];

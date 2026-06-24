@@ -12,11 +12,7 @@ pub struct CpuState {
 
 impl CpuState {
     pub const fn new() -> Self {
-        CpuState {
-            prev_total: 0,
-            prev_idle: 0,
-            pct: None,
-        }
+        CpuState { prev_total: 0, prev_idle: 0, pct: None }
     }
     fn read(&mut self) {
         let s = match std::fs::read_to_string("/proc/stat") {
@@ -33,10 +29,7 @@ impl CpuState {
         }
         // user, nice, system, idle, steal  (same fields polybar uses for total)
         let fields: [usize; 5] = [1, 2, 3, 4, 8];
-        let vals: Vec<i64> = fields
-            .iter()
-            .filter_map(|&i| parts.get(i).and_then(|s| s.parse().ok()))
-            .collect();
+        let vals: Vec<i64> = fields.iter().filter_map(|&i| parts.get(i).and_then(|s| s.parse().ok())).collect();
         if vals.len() < 5 {
             return;
         }
@@ -51,11 +44,7 @@ impl CpuState {
         let didle = idle - self.prev_idle;
         self.prev_total = total;
         self.prev_idle = idle;
-        self.pct = if dtotal == 0 {
-            None
-        } else {
-            Some(((dtotal - didle) * 100 / dtotal) as i32)
-        };
+        self.pct = if dtotal == 0 { None } else { Some(((dtotal - didle) * 100 / dtotal) as i32) };
     }
 }
 
@@ -64,15 +53,8 @@ pub fn update(state: &mut AppState) {
 }
 
 pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: bool) -> f64 {
-    let text = state
-        .cpu
-        .pct
-        .map(|cp| format!("{} {}%", ICON_CPU.to_str().unwrap(), cp))
-        .unwrap_or_default();
+    let text = state.cpu.pct.map(|cp| format!("{} {}%", ICON_CPU.to_str().unwrap(), cp)).unwrap_or_default();
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 
-pub const MODULE: Module = Module {
-    draw,
-    update: Some(update),
-};
+pub const MODULE: Module = Module { draw, update: Some(update) };

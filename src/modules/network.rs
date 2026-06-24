@@ -14,12 +14,7 @@ pub struct NetState {
 
 impl NetState {
     pub const fn new() -> Self {
-        NetState {
-            prev_rx: -1,
-            prev_sec: 0,
-            prev_nsec: 0,
-            speed: None,
-        }
+        NetState { prev_rx: -1, prev_sec: 0, prev_nsec: 0, speed: None }
     }
     fn read(&mut self) {
         let s = match std::fs::read_to_string("/sys/class/net/wlan0/statistics/rx_bytes") {
@@ -67,9 +62,7 @@ fn network_up() -> bool {
                 return false;
             }
             let state_path = format!("/sys/class/net/{}/operstate", name_str);
-            std::fs::read_to_string(state_path)
-                .map(|s| s.trim() == "up")
-                .unwrap_or(false)
+            std::fs::read_to_string(state_path).map(|s| s.trim() == "up").unwrap_or(false)
         })
     } else {
         false
@@ -88,11 +81,7 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
             } else if s < 1024.0 * 1024.0 {
                 format!("{} {:.0}K/s", ICON_WIFI.to_str().unwrap(), s / 1024.0)
             } else {
-                format!(
-                    "{} {:.1}M/s",
-                    ICON_WIFI.to_str().unwrap(),
-                    s / (1024.0 * 1024.0)
-                )
+                format!("{} {:.1}M/s", ICON_WIFI.to_str().unwrap(), s / (1024.0 * 1024.0))
             }
         }
         _ => "\u{2717}".to_string(),
@@ -100,7 +89,4 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 
-pub const MODULE: Module = Module {
-    draw,
-    update: Some(update),
-};
+pub const MODULE: Module = Module { draw, update: Some(update) };

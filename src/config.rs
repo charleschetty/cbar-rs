@@ -41,10 +41,7 @@ pub const WORKSPACE_TYPE: &str = "i3";
 
 // ── module layout ──
 
-pub static LEFT: &[Module] = &[
-    crate::modules::arch::MODULE,
-    crate::modules::workspace::MODULE,
-];
+pub static LEFT: &[Module] = &[crate::modules::arch::MODULE, crate::modules::workspace::MODULE];
 
 pub static CENTER: &[Module] = &[crate::modules::clock::MODULE];
 
