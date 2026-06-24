@@ -282,7 +282,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if config::TRAY && tray.active && tray.dirty {
+        if config::TRAY && tray.dirty {
             tray.dirty = false;
             tray.layout(&conn, sw, bh, &mut right_margin)?;
         }
