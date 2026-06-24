@@ -324,6 +324,39 @@ impl TrayState {
         Ok(())
     }
 
+    pub fn skip_expose(&self, w: u32) -> bool {
+        self.find(w).is_some()
+    }
+
+    pub fn update_layout<C: Connection>(
+        &mut self,
+        conn: &C,
+        sw: i32,
+        bh: i32,
+        right_margin: &mut i32,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.active && self.dirty {
+            self.dirty = false;
+            self.layout(conn, sw, bh, right_margin)?;
+        }
+        Ok(())
+    }
+
+    pub fn flush_startup_events<C: Connection>(
+        &mut self,
+        conn: &C,
+        sw: i32,
+        bh: i32,
+        right_margin: &mut i32,
+    ) -> Result<(), Box<dyn Error>> {
+        self.update_layout(conn, sw, bh, right_margin)?;
+        while let Ok(Some(ev)) = conn.poll_for_event() {
+            self.handle_event(conn, &ev)?;
+        }
+        self.update_layout(conn, sw, bh, right_margin)?;
+        Ok(())
+    }
+
     pub fn handle_event<C: Connection>(&mut self, conn: &C, ev: &Event) -> Result<(), Box<dyn Error>> {
         if !self.active {
             return Ok(());

@@ -153,20 +153,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut right_margin: i32 = 6;
 
-    if config::TRAY && tray.dirty {
-        tray.dirty = false;
-        tray.layout(&conn, sw, bh, &mut right_margin)?;
-    }
-
-    // Process any dock requests that arrived during init
-    while let Ok(Some(ev)) = conn.poll_for_event() {
-        if config::TRAY {
-            tray.handle_event(&conn, &ev)?;
-        }
-    }
-    if config::TRAY && tray.dirty {
-        tray.dirty = false;
-        tray.layout(&conn, sw, bh, &mut right_margin)?;
+    if config::TRAY {
+        tray.flush_startup_events(&conn, sw, bh, &mut right_margin)?;
     }
 
     let mut updaters: Vec<UpdateFn> = Vec::new();
@@ -198,8 +186,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match conn.poll_for_event()? {
                     Some(Event::Expose(ev)) => {
                         if ev.count == 0 && ev.window != 0 {
-                            let ok = if config::TRAY { tray.find(ev.window).is_none() } else { true };
-                            if ok {
+                            let skip = config::TRAY && tray.skip_expose(ev.window);
+                            if !skip {
                                 draw::draw_all(
                                     &conn,
                                     &cr,
@@ -243,9 +231,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             modules::workspace::poll(h, &mut state);
         }
 
-        if config::TRAY && tray.dirty {
-            tray.dirty = false;
-            tray.layout(&conn, sw, bh, &mut right_margin)?;
+        if config::TRAY {
+            tray.update_layout(&conn, sw, bh, &mut right_margin)?;
         }
 
         tick += 1;
