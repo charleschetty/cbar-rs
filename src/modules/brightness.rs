@@ -4,6 +4,7 @@
 
 use super::*;
 
+#[derive(Default)]
 pub struct BrightState {
     pub pct: Option<i32>,
 }
@@ -19,7 +20,7 @@ pub fn update(state: &mut AppState) {
 }
 
 pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: bool) -> f64 {
-    let text = state.bright.pct.map(|bp| format!("{} {}%", ICON_SUN.to_str().unwrap(), bp)).unwrap_or_default();
+    let text = state.bright.pct.map(|bp| format!("{} {}%", ICON_SUN, bp)).unwrap_or_default();
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 

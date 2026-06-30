@@ -4,6 +4,7 @@
 
 use super::*;
 
+#[derive(Default)]
 pub struct BatteryState {
     pub pct: Option<i32>,
     pub status: String,
@@ -27,7 +28,7 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
         .bat
         .pct
         .map(|bp| {
-            let ico = if bp > 20 { ICON_BAT.to_str().unwrap() } else { ICON_BATL.to_str().unwrap() };
+            let ico = if bp > 20 { ICON_BAT } else { ICON_BATL };
             format!("{} {}%", ico, bp)
         })
         .unwrap_or_default();

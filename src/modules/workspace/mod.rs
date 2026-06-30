@@ -27,10 +27,16 @@ pub fn init(state: &mut AppState) -> Option<WsHandle> {
     }
 }
 
-pub fn poll(handle: &WsHandle, state: &mut AppState) {
+/// Drain pending workspace updates from the IPC thread.
+///
+/// Returns `true` if the workspace list changed and the bar needs a redraw.
+pub fn poll(handle: &WsHandle, state: &mut AppState) -> bool {
+    let mut changed = false;
     while let Ok(ws) = handle.rx.try_recv() {
         state.i3workspace = Some(ws);
+        changed = true;
     }
+    changed
 }
 
 pub use i3::MODULE;

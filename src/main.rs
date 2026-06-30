@@ -8,8 +8,10 @@ mod tray;
 mod util;
 
 use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use nix::sys::select::{FdSet, select};
+use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use nix::sys::time::TimeVal;
 
 use x11rb::connection::Connection;
@@ -20,6 +22,12 @@ use x11rb::xcb_ffi::XCBConnection;
 use x11rb::{COPY_DEPTH_FROM_PARENT, COPY_FROM_PARENT};
 
 use crate::modules::UpdateFn;
+
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn handle_shutdown(_: std::ffi::c_int) {
+    SHUTDOWN.store(true, Ordering::Relaxed);
+}
 
 #[repr(C)]
 struct XcbVisualtype {
@@ -61,6 +69,12 @@ x11rb::atom_manager! {
     }
 }
 
+/// Borrow the X11 connection fd for `select()`.
+///
+/// # Safety
+///
+/// The returned `BorrowedFd` must not outlive `conn`.  Here it is only used
+/// inside a single iteration of the event loop, so the raw fd is valid.
 fn borrow_fd(fd: RawFd) -> BorrowedFd<'static> {
     unsafe { BorrowedFd::borrow_raw(fd) }
 }
@@ -139,7 +153,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ws = if config::WORKSPACE { modules::workspace::init(&mut state) } else { None };
 
-    let mut visual_raw = get_root_visual(screen).unwrap();
+    let mut visual_raw = get_root_visual(screen).expect("root visual not found in screen's allowed depths");
+    // SAFETY:
+    // - `from_raw_none` on the XCB connection: the `conn` outlives the cairo surface,
+    //   so the raw pointer remains valid.
+    // - `from_raw_none` on `visual_raw`: `visual_raw` lives on the stack in `main()`
+    //   and outlives the surface.
+    // - The surface dimensions (`sw`, `bh`) match the bar window geometry.
     let sfc = unsafe {
         cairo::XCBSurface::create(
             &cairo::XCBConnection::from_raw_none(conn.get_raw_xcb_connection().cast()),
@@ -151,13 +171,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let cr = cairo::Context::new(&sfc)?;
 
+    // Initial right-margin before tray layout runs (overwritten by tray.layout()
+    // when TRAY is enabled; used as-is when TRAY is off).
     let mut right_margin: i32 = 6;
 
     if config::TRAY {
         tray.flush_startup_events(&conn, sw, bh, &mut right_margin)?;
     }
 
-    let mut updaters: Vec<UpdateFn> = Vec::new();
+    let total_modules = config::LEFT.len() + config::CENTER.len() + config::RIGHT.len();
+    let mut updaters: Vec<UpdateFn> = Vec::with_capacity(total_modules);
     for m in config::LEFT.iter().chain(config::CENTER).chain(config::RIGHT) {
         if let Some(u) = m.update {
             updaters.push(u);
@@ -168,10 +191,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         u(&mut state);
     }
 
-    draw::draw_all(&conn, &cr, sw, bh, &state, config::LEFT, config::CENTER, config::RIGHT, right_margin);
+    // Install signal handlers so that SIGTERM / SIGINT cleanly exit the
+    // event loop, allowing destroy_window() to remove the bar window
+    // instead of leaving a stranded dock window on the X server.
+    let sa = SigAction::new(SigHandler::Handler(handle_shutdown), SaFlags::empty(), SigSet::empty());
+    unsafe { sigaction(Signal::SIGTERM, &sa).ok(); }
+    unsafe { sigaction(Signal::SIGINT, &sa).ok(); }
+
+    draw::draw_all(&conn, &cr, sw, bh, &state, config::LEFT, config::CENTER, config::RIGHT, right_margin)?;
 
     let mut tick = 0i32;
     let mut running = true;
+    let mut needs_redraw = false;
 
     while running {
         let mut readfds = FdSet::new();
@@ -188,17 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if ev.count == 0 && ev.window != 0 {
                             let skip = config::TRAY && tray.skip_expose(ev.window);
                             if !skip {
-                                draw::draw_all(
-                                    &conn,
-                                    &cr,
-                                    sw,
-                                    bh,
-                                    &state,
-                                    config::LEFT,
-                                    config::CENTER,
-                                    config::RIGHT,
-                                    right_margin,
-                                );
+                                needs_redraw = true;
                             }
                         }
                     }
@@ -227,12 +248,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if let Some(ref h) = ws {
-            modules::workspace::poll(h, &mut state);
+        if ws.as_ref().is_some_and(|h| modules::workspace::poll(h, &mut state)) {
+            needs_redraw = true;
         }
 
-        if config::TRAY {
-            tray.update_layout(&conn, sw, bh, &mut right_margin)?;
+        if SHUTDOWN.load(Ordering::Relaxed) {
+            running = false;
+        }
+
+        if config::TRAY && tray.dirty {
+            tray.dirty = false;
+            tray.layout(&conn, sw, bh, &mut right_margin)?;
+            needs_redraw = true;
         }
 
         tick += 1;
@@ -241,11 +268,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for u in &updaters {
                 u(&mut state);
             }
+            needs_redraw = true;
         }
 
-        draw::draw_all(&conn, &cr, sw, bh, &state, config::LEFT, config::CENTER, config::RIGHT, right_margin);
+        if needs_redraw {
+            draw::draw_all(&conn, &cr, sw, bh, &state, config::LEFT, config::CENTER, config::RIGHT, right_margin)?;
+            needs_redraw = false;
+        }
     }
 
     conn.destroy_window(win_id)?;
+    util::pulse_cleanup();
     Ok(())
 }

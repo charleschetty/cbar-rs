@@ -7,12 +7,19 @@ use x11rb::connection::Connection;
 
 pub fn simple_draw(cr: &Context, x: f64, bh: i32, font_size: f64, text: &str, dry_run: bool) -> f64 {
     cr.set_font_size(font_size);
-    let fe = cr.font_extents().unwrap();
+    // If font_extents fails (e.g. XCB connection lost), return 0 — no point crashing.
+    let fe = match cr.font_extents() {
+        Ok(f) => f,
+        Err(_) => return 0.0,
+    };
     let baseline = (bh as f64 + fe.ascent() - fe.descent()) / 2.0;
     if text.is_empty() {
         return 0.0;
     }
-    let te = cr.text_extents(text).unwrap();
+    let te = match cr.text_extents(text) {
+        Ok(t) => t,
+        Err(_) => return 0.0,
+    };
     if !dry_run {
         cr.set_source_rgb(config::FG_R, config::FG_G, config::FG_B);
         cr.move_to(x, baseline);
@@ -45,13 +52,13 @@ pub fn draw_all(
     center: &[Module],
     right: &[Module],
     right_margin: i32,
-) {
+) -> Result<(), Box<dyn std::error::Error>> {
     let _ = cr.save();
     cr.set_operator(cairo::Operator::Source);
     cr.set_source_rgb(config::BG_R, config::BG_G, config::BG_B);
     let _ = cr.paint();
     let _ = cr.paint();
-    cr.select_font_face(config::FONT.to_str().unwrap(), cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    cr.select_font_face(config::FONT, cairo::FontSlant::Normal, cairo::FontWeight::Normal);
 
     let mut lx = 6.0;
     for m in left {
@@ -89,5 +96,6 @@ pub fn draw_all(
     }
 
     let _ = cr.restore();
-    let _ = conn.flush();
+    conn.flush()?;
+    Ok(())
 }

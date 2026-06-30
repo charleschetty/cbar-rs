@@ -4,6 +4,7 @@
 
 use super::*;
 
+#[derive(Default)]
 pub struct CpuState {
     prev_total: i64,
     prev_idle: i64,
@@ -11,9 +12,6 @@ pub struct CpuState {
 }
 
 impl CpuState {
-    pub const fn new() -> Self {
-        CpuState { prev_total: 0, prev_idle: 0, pct: None }
-    }
     fn read(&mut self) {
         let s = match std::fs::read_to_string("/proc/stat") {
             Ok(s) => s,
@@ -53,7 +51,7 @@ pub fn update(state: &mut AppState) {
 }
 
 pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: bool) -> f64 {
-    let text = state.cpu.pct.map(|cp| format!("{} {}%", ICON_CPU.to_str().unwrap(), cp)).unwrap_or_default();
+    let text = state.cpu.pct.map(|cp| format!("{} {}%", ICON_CPU, cp)).unwrap_or_default();
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 

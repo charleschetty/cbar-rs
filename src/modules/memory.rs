@@ -4,6 +4,7 @@
 
 use super::*;
 
+#[derive(Default)]
 pub struct MemState {
     pub pct: Option<i32>,
 }
@@ -27,7 +28,7 @@ pub fn update(state: &mut AppState) {
 }
 
 pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: bool) -> f64 {
-    let text = state.mem.pct.map(|mp| format!("{} {}%", ICON_MEM.to_str().unwrap(), mp)).unwrap_or_default();
+    let text = state.mem.pct.map(|mp| format!("{} {}%", ICON_MEM, mp)).unwrap_or_default();
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)
 }
 

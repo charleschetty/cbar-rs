@@ -3,11 +3,11 @@
 // All its logic is here — nothing in mod.rs.  NVML is initialised lazily on first use.
 
 use super::*;
-use std::sync::Mutex;
+use std::sync::OnceLock;
 
-static NVML: Mutex<Option<nvml_wrapper::Nvml>> = Mutex::new(None);
+static NVML: OnceLock<Option<nvml_wrapper::Nvml>> = OnceLock::new();
 
-#[derive(Clone)]
+#[derive(Default)]
 pub struct GpuStats {
     pub gpu: i32,
     pub mem: i32,
@@ -37,11 +37,8 @@ fn query_gpu(nvml: &nvml_wrapper::Nvml) -> GpuStats {
 }
 
 pub fn update(state: &mut AppState) {
-    let mut guard = NVML.lock().unwrap();
-    if guard.is_none() {
-        *guard = nvml_wrapper::Nvml::init().ok();
-    }
-    if let Some(ref nv) = *guard {
+    let nvml = NVML.get_or_init(|| nvml_wrapper::Nvml::init().ok());
+    if let Some(ref nv) = *nvml {
         state.gpu = query_gpu(nv);
     }
 }
@@ -50,13 +47,13 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
     let text = if state.gpu.valid {
         format!(
             "{} {}%  {} {}%  {} {}%  {} {}\u{00B0}C",
-            ICON_NVG.to_str().unwrap(),
+            ICON_NVG,
             state.gpu.gpu,
-            ICON_NVM.to_str().unwrap(),
+            ICON_NVM,
             state.gpu.mem,
-            ICON_NVV.to_str().unwrap(),
+            ICON_NVV,
             state.gpu.vram,
-            ICON_NVT.to_str().unwrap(),
+            ICON_NVT,
             state.gpu.temp
         )
     } else {

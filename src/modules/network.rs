@@ -4,18 +4,16 @@
 
 use super::*;
 use std::path::Path;
+use std::time::Instant;
 
+#[derive(Default)]
 pub struct NetState {
-    prev_rx: i64,
-    prev_sec: i64,
-    prev_nsec: i64,
+    prev_rx: Option<i64>,
+    prev_instant: Option<Instant>,
     pub speed: Option<f64>,
 }
 
 impl NetState {
-    pub const fn new() -> Self {
-        NetState { prev_rx: -1, prev_sec: 0, prev_nsec: 0, speed: None }
-    }
     fn read(&mut self) {
         let s = match std::fs::read_to_string("/sys/class/net/wlan0/statistics/rx_bytes") {
             Ok(s) => s,
@@ -25,30 +23,19 @@ impl NetState {
             Ok(v) => v,
             Err(_) => return,
         };
-        let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            Ok(d) => d,
-            Err(_) => return,
-        };
-        let sec = now.as_secs() as i64;
-        let nsec = now.subsec_nanos() as i64;
-        if self.prev_rx < 0 {
-            self.prev_rx = rx;
-            self.prev_sec = sec;
-            self.prev_nsec = nsec;
-            return;
+        let now = Instant::now();
+        if let (Some(prev_rx), Some(prev_instant)) = (self.prev_rx, self.prev_instant) {
+            let dt = now.duration_since(prev_instant).as_secs_f64();
+            if dt > 0.0 {
+                let speed = (rx - prev_rx) as f64 / dt;
+                self.prev_rx = Some(rx);
+                self.prev_instant = Some(now);
+                self.speed = Some(if speed > 0.0 { speed } else { 0.0 });
+                return;
+            }
         }
-        let dt = (sec - self.prev_sec) as f64 + (nsec - self.prev_nsec) as f64 / 1e9;
-        if dt <= 0.0 {
-            self.prev_rx = rx;
-            self.prev_sec = sec;
-            self.prev_nsec = nsec;
-            return;
-        }
-        let speed = (rx - self.prev_rx) as f64 / dt;
-        self.prev_rx = rx;
-        self.prev_sec = sec;
-        self.prev_nsec = nsec;
-        self.speed = Some(if speed > 0.0 { speed } else { 0.0 });
+        self.prev_rx = Some(rx);
+        self.prev_instant = Some(now);
     }
 }
 
@@ -77,11 +64,11 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
     let text = match (network_up(), state.net.speed) {
         (true, Some(s)) if s >= 0.0 => {
             if s < 1024.0 {
-                format!("{} {:.0}B/s", ICON_WIFI.to_str().unwrap(), s)
+                format!("{} {:.0}B/s", ICON_WIFI, s)
             } else if s < 1024.0 * 1024.0 {
-                format!("{} {:.0}K/s", ICON_WIFI.to_str().unwrap(), s / 1024.0)
+                format!("{} {:.0}K/s", ICON_WIFI, s / 1024.0)
             } else {
-                format!("{} {:.1}M/s", ICON_WIFI.to_str().unwrap(), s / (1024.0 * 1024.0))
+                format!("{} {:.1}M/s", ICON_WIFI, s / (1024.0 * 1024.0))
             }
         }
         _ => "\u{2717}".to_string(),

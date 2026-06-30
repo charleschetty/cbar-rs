@@ -4,6 +4,7 @@
 
 use super::*;
 
+#[derive(Default)]
 pub struct VolumeState {
     pub pct: Option<i32>,
     pub muted: bool,
@@ -27,7 +28,7 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
         .map(|v| {
             let ico = if state.vol.muted { ICON_MUTE } else { ICON_VOL };
             let vv = if state.vol.muted { 0 } else { v };
-            format!("{} {}%", ico.to_str().unwrap(), vv)
+            format!("{} {}%", ico, vv)
         })
         .unwrap_or_default();
     super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, &text, dry_run)

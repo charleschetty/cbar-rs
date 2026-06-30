@@ -21,7 +21,7 @@ enum MsgType {
     Subscribe = 2,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct Workspace {
     pub name: String,
     #[serde(default)]
@@ -46,6 +46,8 @@ pub fn init(state: &mut AppState) -> Option<super::WsHandle> {
 
     let (tx, rx) = mpsc::channel();
 
+    // The IPC thread runs until the process exits — the OS reclaims it.
+    // A read timeout would interfere with Ctrl+C responsiveness.
     std::thread::spawn(move || {
         while let Ok((_, _body)) = recv(&mut stream) {
             let _ = send(&mut stream, MsgType::GetWorkspaces, None);
@@ -101,8 +103,11 @@ fn send(stream: &mut UnixStream, msg_type: MsgType, payload: Option<&str>) -> st
 fn recv(stream: &mut UnixStream) -> std::io::Result<(u32, String)> {
     let mut hdr = [0u8; 14];
     stream.read_exact(&mut hdr)?;
-    let len = u32::from_le_bytes(hdr[6..10].try_into().unwrap());
-    let type_val = u32::from_le_bytes(hdr[10..14].try_into().unwrap());
+    if hdr[..6] != *I3_MAGIC {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid i3-ipc magic bytes"));
+    }
+    let len = u32::from_le_bytes([hdr[6], hdr[7], hdr[8], hdr[9]]);
+    let type_val = u32::from_le_bytes([hdr[10], hdr[11], hdr[12], hdr[13]]);
     let mut buf = vec![0u8; len as usize];
     stream.read_exact(&mut buf)?;
     String::from_utf8(buf)
@@ -120,12 +125,18 @@ pub fn draw(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry_run: boo
     let pad = config::WS_PAD;
     let gap = config::WS_GAP;
     cr.set_font_size(config::FONT_SIZE_MAIN);
-    let fe = cr.font_extents().unwrap();
+    let fe = match cr.font_extents() {
+        Ok(f) => f,
+        Err(_) => return 0.0,
+    };
     let baseline = (bh as f64 + fe.ascent() - fe.descent()) / 2.0;
 
     let mut lx = x;
     for w in ws {
-        let te = cr.text_extents(&w.name).unwrap();
+        let te = match cr.text_extents(&w.name) {
+            Ok(t) => t,
+            Err(_) => return 0.0,
+        };
         let bw = te.x_advance() + pad * 2.0;
         let by = 4.0;
 

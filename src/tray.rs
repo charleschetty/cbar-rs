@@ -28,6 +28,7 @@ struct TrayClient {
     xembed_flags: u32,
 }
 
+
 pub struct TrayState {
     pub active: bool,
     pub dirty: bool,
@@ -54,6 +55,8 @@ fn query_xembed<C: Connection>(conn: &C, win: u32, xembed_info_atom: u32) -> (bo
     if reply.value.len() < 8 {
         return (false, 0, 0);
     }
+    // SAFETY: _XEMBED_INFO is format 32 (CARDINAL), so interpreting the bytes
+    // as u32 is sound.  The length check above ensures at least 2 u32 values.
     let data = unsafe { std::slice::from_raw_parts(reply.value.as_ptr() as *const u32, reply.value.len() / 4) };
     (true, data[0], data[1])
 }
@@ -126,6 +129,7 @@ impl TrayState {
         }
         let icon_sz = config::FONT_SIZE_ICON as i32 + 6;
         let pad = 6;
+
         let xembed_info_atom = self.atoms()._XEMBED_INFO;
 
         // Pass 1: count mapped icons

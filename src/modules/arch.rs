@@ -3,7 +3,7 @@
 use super::*;
 
 pub fn draw(cr: &cairo::Context, x: f64, bh: i32, _state: &AppState, dry_run: bool) -> f64 {
-    super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, ICON_ARCH.to_str().unwrap(), dry_run)
+    super::simple_draw(cr, x, bh, config::FONT_SIZE_ICON, ICON_ARCH, dry_run)
 }
 
 pub const MODULE: Module = Module { draw, update: None };

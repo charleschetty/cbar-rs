@@ -87,3 +87,17 @@ void read_volume_both(int *vol, int *muted)
 
     if (d.done) { *vol = d.vol; *muted = d.muted; }
 }
+
+void pulse_cleanup(void)
+{
+    if (pa_ctx) {
+        pa_context_disconnect(pa_ctx);
+        pa_context_unref(pa_ctx);
+        pa_ctx = NULL;
+    }
+    if (pa_ml) {
+        pa_mainloop_free(pa_ml);
+        pa_ml = NULL;
+    }
+    pa_ok = 0;
+}

@@ -2,13 +2,11 @@
 //
 // To add a custom module, add it to LEFT / CENTER / RIGHT below.
 
-use std::ffi::CStr;
-
 use crate::modules::Module;
 
 // ── font & sizes ──
 
-pub const FONT: &CStr = c"JetBrainsMono NF";
+pub const FONT: &str = "JetBrainsMono NF";
 pub const FONT_SIZE_MAIN: f64 = 15.0;
 pub const FONT_SIZE_ICON: f64 = 14.0;
 pub const BAR_HEIGHT: i32 = 36;
@@ -41,11 +39,11 @@ pub const WORKSPACE_TYPE: &str = "i3";
 
 // ── module layout ──
 
-pub static LEFT: &[Module] = &[crate::modules::arch::MODULE, crate::modules::workspace::MODULE];
+pub const LEFT: &[Module] = &[crate::modules::arch::MODULE, crate::modules::workspace::MODULE];
 
-pub static CENTER: &[Module] = &[crate::modules::clock::MODULE];
+pub const CENTER: &[Module] = &[crate::modules::clock::MODULE];
 
-pub static RIGHT: &[Module] = &[
+pub const RIGHT: &[Module] = &[
     crate::modules::network::MODULE,
     crate::modules::cpu::MODULE,
     crate::modules::memory::MODULE,

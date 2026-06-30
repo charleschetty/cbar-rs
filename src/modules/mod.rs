@@ -25,6 +25,7 @@ pub use crate::draw::{rrect, simple_draw};
 pub use crate::icons::*;
 pub use crate::util::read_int;
 
+#[derive(Default)]
 pub struct AppState {
     pub i3workspace: Option<Vec<Workspace>>,
 
@@ -40,17 +41,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        AppState {
-            i3workspace: None,
-            gpu: nvidia::GpuStats { gpu: 0, mem: 0, vram: 0, temp: 0, valid: false },
-            cpu: cpu::CpuState::new(),
-            mem: memory::MemState { pct: None },
-            temp: cpu_temp::TempState { value: None },
-            bright: brightness::BrightState { pct: None },
-            bat: battery::BatteryState { pct: None, status: String::new() },
-            vol: volume::VolumeState { pct: None, muted: false },
-            net: network::NetState::new(),
-        }
+        Self::default()
     }
 }
 
@@ -58,7 +49,6 @@ pub type DrawFn = fn(cr: &cairo::Context, x: f64, bh: i32, state: &AppState, dry
 
 pub type UpdateFn = fn(&mut AppState);
 
-#[derive(Copy, Clone)]
 pub struct Module {
     pub draw: DrawFn,
     pub update: Option<UpdateFn>,
